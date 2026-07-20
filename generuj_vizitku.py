@@ -41,8 +41,14 @@ TEMPLATE = Path(__file__).parent / "sablona_vizitka.pdf"
 TEMPLATE_PAGE = 1                      # osobní strana = 2. stránka šablony
 PAGE_W, PAGE_H = 321.118, 207.732
 
-FONT_PATH = Path(__file__).parent / "fonts" / "NunitoSans-Bold.ttf"
-FONT_NAME = "NunitoSans-Bold"
+# jméno + příjmení: sytější řez (ExtraBold ~800); drobné texty: Bold (~700);
+# pozice/role: Regular (~400). Fonty mají unikátní interní názvy kvůli PDF.
+NAME_FONT_PATH = Path(__file__).parent / "fonts" / "SpringWalkExtraBold.ttf"
+NAME_FONT = "SpringWalkExtraBold"
+FONT_PATH = Path(__file__).parent / "fonts" / "SpringWalkBold.ttf"
+FONT_NAME = "SpringWalkBold"
+REGULAR_FONT_PATH = Path(__file__).parent / "fonts" / "SpringWalkRegular.ttf"
+REGULAR_FONT = "SpringWalkRegular"
 
 # CMYK barvy ze vzoru
 COL_TEXT = CMYKColor(0.844, 0.758, 0.582, 0.68)     # texty
@@ -70,7 +76,7 @@ NAME_COVER_RECT = fitz.Rect(44.0, 44.0, 212.0, 106.0)
 # malé texty, 8 pt, tracking podle vzoru
 SMALL_SIZE = 8.0
 SMALL_TRACKING = 0.145                 # pt navíc mezi znaky
-POS_X = 48.9
+POS_X = NAME_X                         # pozice zarovnaná přesně pod jméno
 RIGHT_EDGE = 265.43
 POS_BASELINE = PAGE_H - 115.95
 PHONE_BASELINE = PAGE_H - 116.07
@@ -125,8 +131,9 @@ def build_vcard(titul, jmeno, prijmeni, firma, telefon, email, url) -> str:
     ])
 
 
-def fit_size(text: str, base_size: float, max_w: float) -> float:
-    w = pdfmetrics.stringWidth(text, FONT_NAME, base_size)
+def fit_size(text: str, base_size: float, max_w: float,
+             font: str = FONT_NAME) -> float:
+    w = pdfmetrics.stringWidth(text, font, base_size)
     return base_size if w <= max_w else base_size * max_w / w
 
 
@@ -140,14 +147,17 @@ def tracked_width(text: str, size: float, tracking: float) -> float:
 # ----------------------------------------------------------------------------
 def make_overlay(person: dict) -> bytes:
     pdfmetrics.registerFont(TTFont(FONT_NAME, str(FONT_PATH)))
+    pdfmetrics.registerFont(TTFont(NAME_FONT, str(NAME_FONT_PATH)))
+    pdfmetrics.registerFont(TTFont(REGULAR_FONT, str(REGULAR_FONT_PATH)))
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
 
-    def gradient_text(text, x, baseline, size, gx0, gw, col_from, col_to):
+    def gradient_text(text, x, baseline, size, gx0, gw, col_from, col_to,
+                      font=FONT_NAME):
         c.saveState()
         t = c.beginText(x, baseline)
-        t.setFont(FONT_NAME, size)
+        t.setFont(font, size)
         t.setTextRenderMode(7)          # text jako ořezová maska
         t.textLine(text)
         c.drawText(t)
@@ -155,35 +165,36 @@ def make_overlay(person: dict) -> bytes:
                          (col_from, col_to), extend=True)
         c.restoreState()
 
-    # jméno + příjmení (společná geometrie přechodu jako ve vzoru)
-    s1 = fit_size(person["jmeno"], NAME_SIZE, NAME_MAX_W)
-    s2 = fit_size(person["prijmeni"], NAME_SIZE, NAME_MAX_W)
+    # jméno + příjmení (sytější řez, společná geometrie přechodu jako ve vzoru)
+    s1 = fit_size(person["jmeno"], NAME_SIZE, NAME_MAX_W, NAME_FONT)
+    s2 = fit_size(person["prijmeni"], NAME_SIZE, NAME_MAX_W, NAME_FONT)
     gradient_text(person["jmeno"], NAME_X, LINE1_BASELINE, s1,
-                  GRAD_X0, GRAD_W, GRAD_ORANGE, GRAD_NAVY)
+                  GRAD_X0, GRAD_W, GRAD_ORANGE, GRAD_NAVY, font=NAME_FONT)
     gradient_text(person["prijmeni"], NAME_X, LINE2_BASELINE, s2,
-                  GRAD_X0, GRAD_W, GRAD_ORANGE, GRAD_NAVY)
+                  GRAD_X0, GRAD_W, GRAD_ORANGE, GRAD_NAVY, font=NAME_FONT)
 
-    # titul pod příjmením s vlastním krátkým přechodem
+    # titul pod příjmením s vlastním krátkým přechodem, zarovnaný pod jméno
     if person["titul"]:
-        tw = pdfmetrics.stringWidth(person["titul"], FONT_NAME, TITUL_SIZE)
-        gradient_text(person["titul"], NAME_X - 0.2, TITUL_BASELINE, TITUL_SIZE,
-                      NAME_X - 0.2, tw, GRAD_ORANGE, GRAD_TITUL_END)
+        tw = pdfmetrics.stringWidth(person["titul"], NAME_FONT, TITUL_SIZE)
+        gradient_text(person["titul"], NAME_X, TITUL_BASELINE, TITUL_SIZE,
+                      NAME_X, tw, GRAD_ORANGE, GRAD_TITUL_END, font=NAME_FONT)
 
-    # pozice + kontakty (Bold, tracking podle vzoru)
+    # pozice/role v Regular řezu; kontakty v Bold (tracking podle vzoru)
     c.setFillColor(COL_TEXT)
 
-    def small_left(x, baseline, text):
+    def small_left(x, baseline, text, font=FONT_NAME):
         t = c.beginText(x, baseline)
-        t.setFont(FONT_NAME, SMALL_SIZE)
+        t.setFont(font, SMALL_SIZE)
         t.setCharSpace(SMALL_TRACKING)
         t.textLine(text)
         c.drawText(t)
 
-    def small_right(right_x, baseline, text):
-        small_left(right_x - tracked_width(text, SMALL_SIZE, SMALL_TRACKING),
-                   baseline, text)
+    def small_right(right_x, baseline, text, font=FONT_NAME):
+        w = (pdfmetrics.stringWidth(text, font, SMALL_SIZE)
+             + max(len(text) - 1, 0) * SMALL_TRACKING)
+        small_left(right_x - w, baseline, text, font)
 
-    small_left(POS_X, POS_BASELINE, person["pozice"])
+    small_left(POS_X, POS_BASELINE, person["pozice"], REGULAR_FONT)
     small_right(RIGHT_EDGE, PHONE_BASELINE, norm_phone_display(person["telefon"]))
     small_right(RIGHT_EDGE, EMAIL_BASELINE, person["email"].strip())
     small_right(RIGHT_EDGE, WEB_BASELINE, norm_web_display(person["url"]))

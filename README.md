@@ -6,14 +6,15 @@ s logem se negeneruje, používá se beze změny z originálu.
 
 Na vizitce se podle dodaných údajů nahradí:
 
-- jméno na prvním řádku, příjmení na druhém (barevný přechod oranžová - navy)
-- titul pod příjmením (krátký barevný přechod jako "DiS." ve vzoru)
-- pozice vlevo, telefon, e-mail, web a adresa vpravo
+- jméno na prvním řádku, příjmení na druhém (řez ExtraBold, barevný přechod
+  oranžová - navy)
+- titul pod příjmením (ExtraBold, krátký barevný přechod jako "DiS." ve vzoru)
+- pozice/role vlevo (řez Regular), telefon, e-mail, web a adresa vpravo (Bold)
 - QR kód vpravo nahoře (vCard: titul, jméno, příjmení, firma, telefon,
   e-mail, URL). Po naskenování telefonem se kontakt nabídne k uložení.
 
-Typografie odpovídá vzoru: Nunito Sans Bold, u drobných textů tracking,
-všechny barvy v CMYK podle originálu.
+Jméno, příjmení, titul i role začínají na jedné svislici (zarovnáno podle
+jména). Všechny barvy jsou v CMYK podle originálu.
 
 ## Instalace
 
@@ -44,17 +45,26 @@ Hotová PDF se ukládají do složky output.
 
 ## GitHub Actions
 
-Ve složce .github/workflows je připravený workflow. Po nahrání repozitáře na
-GitHub stačí upravit osoby.tsv a pushnout, nebo workflow spustit ručně
-tlačítkem Run workflow v záložce Actions. Hotová PDF pak najdete takto:
-záložka Actions, kliknout na konkrétní běh workflow, a dole na stránce
-v sekci Artifacts je ke stažení balíček vizitky-pdf.
+Ve složce .github/workflows je připravený workflow. Používá akce ve verzích
+běžících na Node.js 24 (checkout@v5, setup-python@v6, upload-artifact@v6).
+Po nahrání repozitáře na GitHub stačí upravit osoby.tsv a pushnout, nebo
+workflow spustit ručně tlačítkem Run workflow v záložce Actions. Hotová PDF
+pak najdete takto: záložka Actions, kliknout na konkrétní běh workflow, a dole
+na stránce v sekci Artifacts je ke stažení balíček vizitky-pdf.
+
+## Řezy písma
+
+Používá se Nunito Sans (SIL OFL, viz OFL.txt) ve třech vahách s unikátními
+interními názvy, aby se v PDF neslévaly:
+
+- SpringWalkExtraBold (800) - jméno, příjmení, titul
+- SpringWalkBold (700) - telefon, e-mail, web, adresa
+- SpringWalkRegular (400) - pozice/role
 
 ## Technické poznámky
 
 - Dlouhá jména se automaticky zmenší, aby nezasáhla do QR kódu.
 - QR má 16,8 mm, modul 0,34 mm, korekce chyb L. Po prvním nátisku doporučuji
   zkušební sken telefonem.
-- Písmo Nunito Sans (fonts/) je pod licencí SIL OFL, viz OFL.txt.
 - Výstup je jednostránkové PDF osobní strany včetně spadávky a ořezových
   značek, připravené do tiskárny.
