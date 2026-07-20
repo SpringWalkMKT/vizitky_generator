@@ -20,7 +20,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Generovani vizitek
-        run: python generuj_vizitku.py spring_walk_vizitka.ai --tsv osoby.tsv
+        run: python generuj_vizitku.py --tsv osoby.tsv
 
       - name: Ulozeni vysledku
         uses: actions/upload-artifact@v4
