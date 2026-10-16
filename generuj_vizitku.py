@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Generátor vizitek Spring Walk (v2)
+Generátor vizitek Spring Walk podle schváleného vzoru
 ==================================
 Šablonou je tisková vizitka (sablona_vizitka.pdf, CMYK, spadávka 3 mm,
 ořezové značky). Generuje se pouze osobní strana:
 
 - jméno na 1. řádku, příjmení na 2. řádku (barevný přechod oranžová -> navy)
-- titul pod příjmením (vlastní krátký přechod, jako "DiS." ve vzoru)
+- titul nad jménem (vlastní krátký přechod podle vzoru)
 - pozice vlevo, kontakty vpravo (Nunito Sans Bold, tracking podle vzoru)
 - QR kód (vCard) vpravo nahoře na místě původního QR
 
@@ -24,22 +24,29 @@ import csv
 import io
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 import segno
+from fontTools.pens.boundsPen import BoundsPen
+from fontTools.ttLib import TTFont as FontToolsFont
 from reportlab.lib.colors import CMYKColor
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 # ----------------------------------------------------------------------------
-# Konstanty šablony (změřeno z tiskového PDF; souřadnice stránky včetně
-# spadávky a značek, strana 321.118 x 207.732 pt, TrimBox od 33 pt)
+# Vzdálenosti jsou měřené od TrimBoxu na straně 2 schváleného tiskového
+# vzoru vizitky-SW-90x50mm.pdf. Vnější rozměr PDF není rozměrem vizitky.
 # ----------------------------------------------------------------------------
 TEMPLATE = Path(__file__).parent / "sablona_vizitka.pdf"
-TEMPLATE_PAGE = 1                      # osobní strana = 2. stránka šablony
-PAGE_W, PAGE_H = 321.118, 207.732
+TEMPLATE_PAGE = 0                      # čistá jednostránková osobní šablona
+with fitz.open(TEMPLATE) as _template:
+    if len(_template) != 1:
+        raise ValueError("Použijte čistou šablonu připravenou ze strany 2 vzoru.")
+    PAGE_W, PAGE_H = _template[0].rect.width, _template[0].rect.height
+    TRIM = _template[0].trimbox
 
 # jméno + příjmení: sytější řez (ExtraBold ~800); drobné texty: Bold (~700);
 # pozice/role: Regular (~400). Fonty mají unikátní interní názvy kvůli PDF.
@@ -51,41 +58,38 @@ REGULAR_FONT_PATH = Path(__file__).parent / "fonts" / "SpringWalkRegular.ttf"
 REGULAR_FONT = "SpringWalkRegular"
 
 # CMYK barvy ze vzoru
-COL_TEXT = CMYKColor(0.844, 0.758, 0.582, 0.68)     # texty
-COL_QR = CMYKColor(0.965, 0.699, 0.457, 0.859)      # QR
-GRAD_ORANGE = CMYKColor(0.0234375, 0.832031, 0.9375, 0.00390625)
-GRAD_NAVY = CMYKColor(1, 0.785156, 0.355469, 0.246094)
-GRAD_TITUL_END = CMYKColor(0.351562, 0.792969, 0.5625, 0.210937)
+COL_TEXT = CMYKColor(0, 0, 0, 1)
+COL_QR = CMYKColor(0, 0, 0, 1)
+GRAD_ORANGE = CMYKColor(0.07, 0.82, 0.85, 0.01)
+GRAD_NAVY = CMYKColor(0.95, 0.72, 0.38, 0.31)
+GRAD_TITUL_END = CMYKColor(0.324132, 0.707759, 0.513268, 0.352789)
 
 # velké jméno (2 řádky) – baseline zdola
-NAME_X = 49.44
-LINE1_BASELINE = PAGE_H - 65.64        # jméno
-LINE2_BASELINE = PAGE_H - 88.92        # příjmení
-NAME_SIZE = 24.0
+NAME_X = TRIM.x0 + 15.3085
+LINE1_BASELINE = PAGE_H - (TRIM.y0 + 42.1885)
+LINE2_BASELINE = PAGE_H - (TRIM.y0 + 65.1885)
+NAME_SIZE = 23.0
 NAME_MAX_W = 160.0                     # aby jméno nezasáhlo do QR
-GRAD_X0, GRAD_W = 49.545, 146.686      # geometrie přechodu ze vzoru
 
-# titul pod příjmením ("DiS." / "Mgr." ...)
-TITUL_BASELINE = PAGE_H - 103.91
-TITUL_SIZE = 8.5
-
-# oblast původního jména + titulu – překryje se bílou (shora dolů);
-# nesmí zasáhnout QR (začíná x 217.7) ani pozici (začíná y 107.7)
-NAME_COVER_RECT = fitz.Rect(44.0, 44.0, 212.0, 106.0)
+# Titul před jménem (Mgr., Mgr. Bc.). Prázdný titul neposouvá jméno.
+TITUL_X = TRIM.x0 + 16.3825
+TITUL_BASELINE = PAGE_H - (TRIM.y0 + 19.245)
+TITUL_SIZE = 8.0
 
 # malé texty, 8 pt, tracking podle vzoru
 SMALL_SIZE = 8.0
 SMALL_TRACKING = 0.145                 # pt navíc mezi znaky
-POS_X = NAME_X                         # pozice zarovnaná přesně pod jméno
-RIGHT_EDGE = 265.43
-POS_BASELINE = PAGE_H - 115.95
-PHONE_BASELINE = PAGE_H - 116.07
-EMAIL_BASELINE = PAGE_H - 130.75
-WEB_BASELINE = PAGE_H - 145.43
-ADDR_BASELINE = PAGE_H - 160.43
+POS_X = TRIM.x0 + 16.3043
+RIGHT_EDGE = TRIM.x0 + 232.4405
+POS_BASELINE = PAGE_H - (TRIM.y0 + 83.3936)
+PHONE_BASELINE = POS_BASELINE
+EMAIL_BASELINE = PAGE_H - (TRIM.y0 + 98.0733)
+WEB_BASELINE = PAGE_H - (TRIM.y0 + 112.752)
+ADDR_BASELINE = PAGE_H - (TRIM.y0 + 127.4327)
 
 # QR – stejné místo a velikost jako ve vzoru (vpravo nahoře)
-QR_RECT_TOPDOWN = fitz.Rect(217.93, 50.88, 265.43, 98.38)   # 47.5 pt
+QR_RECT_TOPDOWN = fitz.Rect(TRIM.x0 + 184.2515, TRIM.y0 + 17.005,
+                           TRIM.x0 + 232.4405, TRIM.y0 + 65.194)
 
 
 # ----------------------------------------------------------------------------
@@ -142,6 +146,31 @@ def tracked_width(text: str, size: float, tracking: float) -> float:
             + max(len(text) - 1, 0) * tracking)
 
 
+@lru_cache(maxsize=3)
+def font_geometry(path: Path):
+    font = FontToolsFont(path)
+    return font, font.getGlyphSet(), font.getBestCmap()
+
+
+def ink_bounds(text: str, path: Path, size: float) -> tuple[float, float]:
+    """Visible horizontal bounds, excluding the first/last glyph bearings."""
+    font, glyphs, cmap = font_geometry(path)
+    cursor = 0
+    left, right = float("inf"), float("-inf")
+    for char in text:
+        glyph_name = cmap[ord(char)]
+        pen = BoundsPen(glyphs)
+        glyphs[glyph_name].draw(pen)
+        if pen.bounds is not None:
+            left = min(left, cursor + pen.bounds[0])
+            right = max(right, cursor + pen.bounds[2])
+        cursor += font["hmtx"][glyph_name][0]
+    if left == float("inf"):
+        raise ValueError("Text pro barevný přechod nesmí být prázdný.")
+    scale = size / font["head"].unitsPerEm
+    return left * scale, right * scale
+
+
 # ----------------------------------------------------------------------------
 # Overlay vrstva (reportlab -> PDF v paměti, vše CMYK)
 # ----------------------------------------------------------------------------
@@ -166,18 +195,21 @@ def make_overlay(person: dict) -> bytes:
         c.restoreState()
 
     # jméno + příjmení (sytější řez, společná geometrie přechodu jako ve vzoru)
-    s1 = fit_size(person["jmeno"], NAME_SIZE, NAME_MAX_W, NAME_FONT)
-    s2 = fit_size(person["prijmeni"], NAME_SIZE, NAME_MAX_W, NAME_FONT)
-    gradient_text(person["jmeno"], NAME_X, LINE1_BASELINE, s1,
-                  GRAD_X0, GRAD_W, GRAD_ORANGE, GRAD_NAVY, font=NAME_FONT)
-    gradient_text(person["prijmeni"], NAME_X, LINE2_BASELINE, s2,
-                  GRAD_X0, GRAD_W, GRAD_ORANGE, GRAD_NAVY, font=NAME_FONT)
+    name_size = min(fit_size(person[key], NAME_SIZE, NAME_MAX_W, NAME_FONT)
+                    for key in ("jmeno", "prijmeni"))
+    bounds = [ink_bounds(person[key], NAME_FONT_PATH, name_size)
+              for key in ("jmeno", "prijmeni")]
+    gx0 = NAME_X + min(left for left, right in bounds)
+    gx1 = NAME_X + max(right for left, right in bounds)
+    for key, baseline in (("jmeno", LINE1_BASELINE), ("prijmeni", LINE2_BASELINE)):
+        gradient_text(person[key], NAME_X, baseline, name_size,
+                      gx0, gx1 - gx0, GRAD_ORANGE, GRAD_NAVY, font=NAME_FONT)
 
-    # titul pod příjmením s vlastním krátkým přechodem, zarovnaný pod jméno
+    # Titul nad jménem, řez Bold a vlastní přechod podle originálu.
     if person["titul"]:
-        tw = pdfmetrics.stringWidth(person["titul"], NAME_FONT, TITUL_SIZE)
-        gradient_text(person["titul"], NAME_X, TITUL_BASELINE, TITUL_SIZE,
-                      NAME_X, tw, GRAD_ORANGE, GRAD_TITUL_END, font=NAME_FONT)
+        tl, tr = ink_bounds(person["titul"], FONT_PATH, TITUL_SIZE)
+        gradient_text(person["titul"], TITUL_X, TITUL_BASELINE, TITUL_SIZE,
+                      TITUL_X + tl, tr - tl, GRAD_ORANGE, GRAD_TITUL_END)
 
     # pozice/role v Regular řezu; kontakty v Bold (tracking podle vzoru)
     c.setFillColor(COL_TEXT)
@@ -271,25 +303,9 @@ def make_overlay(person: dict) -> bytes:
 # ----------------------------------------------------------------------------
 def generate(person: dict, out_dir: Path) -> Path:
     doc = fitz.open(TEMPLATE)
-    doc.select([TEMPLATE_PAGE])         # jen osobní strana
+    doc.select([TEMPLATE_PAGE])
     page = doc[0]
-
-    # 1) odstranit původní živé texty (pozice + kontakty)
-    for block in page.get_text("dict")["blocks"]:
-        if block["type"] != 0:
-            continue
-        for line in block["lines"]:
-            for span in line["spans"]:
-                page.add_redact_annot(fitz.Rect(span["bbox"]))
-    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
-                          graphics=fitz.PDF_REDACT_LINE_ART_NONE)
-
-    # 2) překrýt původní jméno + titul a původní QR bílou
-    page.draw_rect(NAME_COVER_RECT, color=None, fill=(1, 1, 1))
-    qr_cover = QR_RECT_TOPDOWN + (-2, -2, 2, 2)
-    page.draw_rect(qr_cover, color=None, fill=(1, 1, 1))
-
-    # 3) nová vrstva (jméno, titul, texty, QR)
+    # Šablona je čistá; není nutné zakrývat žádné původní osobní údaje.
     overlay = fitz.open("pdf", make_overlay(person))
     page.show_pdf_page(page.rect, overlay, 0)
 

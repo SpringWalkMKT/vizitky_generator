@@ -5,6 +5,13 @@ on:
   push:
     paths:
       - "osoby.tsv"
+      - "generuj_vizitku.py"
+      - "sablona_vizitka.pdf"
+      - "requirements.txt"
+      - "fonts/**"
+      - "tests/**"
+      - ".github/workflows/vizitky.yml"
+  pull_request:
 
 jobs:
   build:
@@ -19,6 +26,9 @@ jobs:
       - name: Instalace zavislosti
         run: pip install -r requirements.txt
 
+      - name: Kontrola tiskove sazby
+        run: python -m unittest discover -s tests -v
+
       - name: Generovani vizitek
         run: python generuj_vizitku.py --tsv osoby.tsv
 
@@ -27,3 +37,4 @@ jobs:
         with:
           name: vizitky-pdf
           path: output/*.pdf
+          if-no-files-found: error
