@@ -16,7 +16,9 @@ spadávku 3 mm a vektorové ořezové značky. Druhá strana s logem se negeneru
 - Barvy jména jsou CMYK 7/82/85/1 % → 95/72/38/31 %. Titul používá vlastní
   kratší přechod převzatý ze vzoru. Kontakty a QR jsou černé v CMYK.
 - Pozice je vlevo v řezu Regular, kontakty vpravo v řezu Bold (8 pt).
-  Víceřádková pozice se zalomí do levého sloupce, nejvýše na čtyři řádky.
+  Víceřádková pozice přednostně zachová zadané konce řádků a podle potřeby
+  zmenší písmo až na 6 pt. Pokud se ani tak nevejde, zalomí se do levého
+  sloupce, nejvýše na čtyři řádky.
 - QR obsahuje vCard s titulem, jménem, příjmením, firmou, telefonem,
   e-mailem a URL. Kód se vykresluje vektorově.
 

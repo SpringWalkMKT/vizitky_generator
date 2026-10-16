@@ -87,6 +87,22 @@ class PrintLayoutTests(unittest.TestCase):
                 for contact in contacts:
                     self.assertFalse(pymupdf.Rect(role["bbox"]).intersects(pymupdf.Rect(contact["bbox"])))
 
+    def test_manual_role_lines_are_preserved_without_further_wrapping(self):
+        lines = ["poradce pro pobyt cizinců na území ČR", "obchodní attaché pro Ukrajinu"]
+        person = dict(SAMPLE, titul="", jmeno="Milan", prijmeni="Závora",
+                      telefon="420 775 224 765", email="zavora@springwalk.cz",
+                      url="https://www.vizovakancelar.cz/", pozice="\n".join(lines))
+        with pymupdf.open(stream=generator.make_overlay(person), filetype="pdf") as doc:
+            items = spans(doc[0])
+            roles = [item for item in items if "Regular" in item["font"]]
+            self.assertEqual([item["text"] for item in roles], lines)
+            self.assertGreaterEqual(min(item["size"] for item in roles), 6)
+            self.assertEqual(roles[0]["size"], roles[1]["size"])
+            for role in roles:
+                for item in items:
+                    if "Bold" in item["font"]:
+                        self.assertFalse(pymupdf.Rect(role["bbox"]).intersects(pymupdf.Rect(item["bbox"])))
+
     def test_every_tsv_person_exports_with_print_boxes_and_contact_data(self):
         with tempfile.TemporaryDirectory() as folder:
             for person in self.people:

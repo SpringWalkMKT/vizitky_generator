@@ -244,7 +244,15 @@ def make_overlay(person: dict) -> bytes:
             return (pdfmetrics.stringWidth(text, REGULAR_FONT, size)
                     + max(len(text) - 1, 0) * SMALL_TRACKING)
 
-        for role_size in (8.0, 7.75, 7.5, 7.25, 7.0, 6.75, 6.5, 6.25, 6.0):
+        sizes = (8.0, 7.75, 7.5, 7.25, 7.0, 6.75, 6.5, 6.25, 6.0)
+        # Upřednostnit zadané konce řádků. Další zalomení použít jen tehdy,
+        # pokud se řádky nevejdou ani při minimální čitelné velikosti 6 pt.
+        fixed_sizes = [size for size in sizes if len(role_lines) <= 4
+                       and all(role_width(line, size) <= role_max_w
+                               for line in role_lines)]
+        for role_size in fixed_sizes or sizes:
+            if fixed_sizes:
+                break
             wrapped = []
             for paragraph in person["pozice"].splitlines():
                 line = ""
