@@ -182,9 +182,9 @@ def make_overlay(person: dict) -> bytes:
     # pozice/role v Regular řezu; kontakty v Bold (tracking podle vzoru)
     c.setFillColor(COL_TEXT)
 
-    def small_left(x, baseline, text, font=FONT_NAME):
+    def small_left(x, baseline, text, font=FONT_NAME, size=SMALL_SIZE):
         t = c.beginText(x, baseline)
-        t.setFont(font, SMALL_SIZE)
+        t.setFont(font, size)
         t.setCharSpace(SMALL_TRACKING)
         t.textLine(text)
         c.drawText(t)
@@ -194,7 +194,48 @@ def make_overlay(person: dict) -> bytes:
              + max(len(text) - 1, 0) * SMALL_TRACKING)
         small_left(right_x - w, baseline, text, font)
 
-    small_left(POS_X, POS_BASELINE, person["pozice"], REGULAR_FONT)
+    role_lines = person["pozice"].splitlines()
+    role_size = SMALL_SIZE
+    if len(role_lines) > 1:
+        # Víceřádková role zůstává vlevo a nezasahuje do kontaktů.
+        contacts = [
+            norm_phone_display(person["telefon"]),
+            person["email"].strip(),
+            norm_web_display(person["url"]),
+        ]
+        role_max_w = min(
+            RIGHT_EDGE - tracked_width(text, SMALL_SIZE, SMALL_TRACKING)
+            for text in contacts
+        ) - POS_X - 8.0
+
+        def role_width(text, size):
+            return (pdfmetrics.stringWidth(text, REGULAR_FONT, size)
+                    + max(len(text) - 1, 0) * SMALL_TRACKING)
+
+        for role_size in (8.0, 7.75, 7.5, 7.25, 7.0, 6.75, 6.5, 6.25, 6.0):
+            wrapped = []
+            for paragraph in person["pozice"].splitlines():
+                line = ""
+                for word in paragraph.split():
+                    candidate = (line + " " + word).strip()
+                    if line and role_width(candidate, role_size) > role_max_w:
+                        wrapped.append(line)
+                        line = word
+                    else:
+                        line = candidate
+                if line:
+                    wrapped.append(line)
+            if (len(wrapped) <= 4
+                    and all(role_width(line, role_size) <= role_max_w
+                            for line in wrapped)):
+                role_lines = wrapped
+                break
+        else:
+            raise ValueError("Víceřádková pozice se nevejde do levého sloupce.")
+
+    for index, line in enumerate(role_lines):
+        small_left(POS_X, POS_BASELINE - index * 10.0, line,
+                   REGULAR_FONT, size=role_size)
     small_right(RIGHT_EDGE, PHONE_BASELINE, norm_phone_display(person["telefon"]))
     small_right(RIGHT_EDGE, EMAIL_BASELINE, person["email"].strip())
     small_right(RIGHT_EDGE, WEB_BASELINE, norm_web_display(person["url"]))
